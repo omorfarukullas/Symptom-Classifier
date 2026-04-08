@@ -1,0 +1,173 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Symptom Classifier</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: system-ui, sans-serif; background: #f5f5f3;
+           display: flex; justify-content: center; align-items: flex-start;
+           min-height: 100vh; padding: 40px 16px; }
+    .card { background: white; border-radius: 12px; border: 1px solid #e5e5e3;
+            padding: 28px; max-width: 520px; width: 100%; }
+    h1 { font-size: 18px; font-weight: 500; color: #111; margin-bottom: 4px; }
+    .sub { font-size: 13px; color: #888; margin-bottom: 22px; }
+    label { font-size: 13px; font-weight: 500; color: #555;
+            display: block; margin-bottom: 6px; }
+    textarea { width: 100%; padding: 10px 12px; border: 1px solid #ddd;
+               border-radius: 8px; font-size: 14px; resize: vertical;
+               min-height: 90px; font-family: inherit; color: #111;
+               background: white; transition: border-color 0.15s; }
+    textarea:focus { outline: none; border-color: #888; }
+    button { margin-top: 12px; width: 100%; padding: 10px; background: white;
+             color: #111; border: 1px solid #ccc; border-radius: 8px;
+             font-size: 14px; font-weight: 500; cursor: pointer; }
+    button:hover { background: #f5f5f5; }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+
+    .result { margin-top: 22px; }
+
+    .urgent-banner { background: #fff0f0; border: 1px solid #fca5a5;
+                     border-radius: 8px; padding: 10px 14px; margin-bottom: 14px;
+                     display: flex; align-items: center; gap: 8px; }
+    .urgent-dot { width: 8px; height: 8px; border-radius: 50%;
+                  background: #dc2626; flex-shrink: 0; }
+    .urgent-text { font-size: 13px; font-weight: 500; color: #991b1b; }
+
+    .primary-result { background: #fafafa; border: 1px solid #e5e5e3;
+                      border-radius: 8px; padding: 14px 16px; margin-bottom: 14px; }
+    .cat-row { display: flex; align-items: center;
+               justify-content: space-between; margin-bottom: 10px; }
+    .cat-name { font-size: 16px; font-weight: 500; color: #111;
+                text-transform: capitalize; }
+    .conf-pill { font-size: 11px; font-weight: 500; color: #1d4ed8;
+                 background: #eff6ff; padding: 3px 8px; border-radius: 20px; }
+
+    .bar-wrap { height: 6px; background: #e5e7eb; border-radius: 3px;
+                overflow: hidden; margin-bottom: 12px; }
+    .bar-fill { height: 100%; border-radius: 3px; background: #3b82f6;
+                transition: width 0.5s ease; }
+
+    .section-label { font-size: 11px; font-weight: 500; color: #888;
+                     text-transform: uppercase; letter-spacing: 0.5px;
+                     margin-bottom: 5px; }
+    .advice-text { font-size: 13px; color: #333; line-height: 1.65; }
+
+    .divider { border: none; border-top: 1px solid #e5e7eb; margin: 14px 0; }
+
+    .other-list { display: flex; flex-direction: column; gap: 7px; }
+    .other-item { display: flex; align-items: center; gap: 10px; }
+    .other-name { font-size: 13px; color: #666; width: 130px;
+                  flex-shrink: 0; text-transform: capitalize; }
+    .other-bar-wrap { flex: 1; height: 4px; background: #e5e7eb;
+                      border-radius: 2px; overflow: hidden; }
+    .other-bar { height: 100%; border-radius: 2px; background: #d1d5db; }
+    .other-pct { font-size: 11px; color: #999; width: 36px;
+                 text-align: right; flex-shrink: 0; }
+
+    .disclaimer { margin-top: 20px; font-size: 11px; color: #aaa;
+                  text-align: center; line-height: 1.6; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>Symptom classifier</h1>
+    <p class="sub">Describe your symptoms to get a possible category.</p>
+
+    <label for="symptoms">Your symptoms</label>
+    <textarea id="symptoms"
+      placeholder="e.g. fever, cough, body ache, fatigue..."></textarea>
+
+    <button id="btn" onclick="classify()">Analyse symptoms</button>
+
+    <div class="result" id="result" style="display:none"></div>
+
+    <p class="disclaimer">
+      For educational purposes only.<br>
+      Always consult a qualified medical professional for real diagnosis.
+    </p>
+  </div>
+
+  <script>
+    async function classify() {
+      const symptoms = document.getElementById('symptoms').value.trim();
+      if (!symptoms) { alert('Please enter your symptoms first.'); return; }
+
+      const btn = document.getElementById('btn');
+      btn.disabled = true;
+      btn.textContent = 'Analysing...';
+
+      try {
+        const res = await fetch('/predict', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symptoms })
+        });
+        const data = await res.json();
+        renderResult(data);
+      } catch (err) {
+        alert('Something went wrong. Make sure the server is running.');
+      }
+
+      btn.disabled = false;
+      btn.textContent = 'Analyse symptoms';
+    }
+
+    function renderResult(data) {
+      const box = document.getElementById('result');
+      box.style.display = 'block';
+
+      const catDisplay = data.category.replace(/_/g, ' ');
+
+      // Top 3 other possibilities (excluding top result)
+      const others = (data.top3 || []).slice(1);
+      const maxRaw = data.top3 ? data.top3[0].confidence : 100;
+
+      let othersHTML = '';
+      if (others.length > 0) {
+        othersHTML = `
+          <hr class="divider">
+          <div class="section-label" style="margin-bottom:10px">Other possibilities</div>
+          <div class="other-list">
+            ${others.map(o => {
+              const relWidth = Math.round((o.confidence / maxRaw) * 100);
+              return `
+                <div class="other-item">
+                  <span class="other-name">${o.category.replace(/_/g,' ')}</span>
+                  <div class="other-bar-wrap">
+                    <div class="other-bar" style="width:${relWidth}%"></div>
+                  </div>
+                  <span class="other-pct">${o.confidence.toFixed(1)}%</span>
+                </div>`;
+            }).join('')}
+          </div>`;
+      }
+
+      box.innerHTML = `
+        ${data.urgent ? `
+          <div class="urgent-banner">
+            <div class="urgent-dot"></div>
+            <span class="urgent-text">Urgent — seek emergency care immediately</span>
+          </div>` : ''}
+        <div class="primary-result">
+          <div class="cat-row">
+            <span class="cat-name">${catDisplay}</span>
+            <span class="conf-pill">${data.confidence}% match</span>
+          </div>
+          <div class="bar-wrap">
+            <div class="bar-fill" style="width:${data.confidence}%"></div>
+          </div>
+          <div class="section-label">Recommended action</div>
+          <div class="advice-text">${data.advice}</div>
+        </div>
+        ${othersHTML}
+      `;
+    }
+
+    document.getElementById('symptoms').addEventListener('keydown', e => {
+      if (e.key === 'Enter' && e.ctrlKey) classify();
+    });
+  </script>
+</body>
+</html>
